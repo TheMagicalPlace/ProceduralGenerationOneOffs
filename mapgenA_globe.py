@@ -1,45 +1,90 @@
-from random import randrange,randint,choice
-from statistics import mean
-from typing import List,TypeVar,Container
-from math import sqrt,ceil,log10
-from collections import defaultdict
-Node = TypeVar('Node')
-from colorama import Back,Style,Fore
+from math import sin,cos,log,ceil
+from typing import List
+
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
+class WrapList:
+
+    def __init__(self,iterator):
+        self.iterator = iterator
+        self.perm = tuple(iterator)
+        self.length = len(iterator)
+
+    def __len__(self):
+        return len(self.iterator)
+    def __iter__(self):
+        return next(self)
+
+    def __next__(self):
+        for item in self.iterator:
+            yield item
+
+    def __getitem__(self,index):
+        try:
+            return self.iterator[index]
+        except IndexError:
+            if index >= self.length:
+                return self.perm[0]
+            else:
+                return self.perm[-1]
+
+    def __setitem__(self, index, value):
+        self.iterator[index] = value
+
+from typing import List
+from random import randint,randrange,choice
+from statistics import mean
+from collections import defaultdict
 class LocationNode:
     reverse_directions = {'N':'S','S':'N','E':'W','W':'E'}
 
-    def __init__(self,position : List[int],max_height : int =None,weights=(0.2,0.7,0.1)):
-        self.weights = weights
+    def __init__(self,cordinates : List[int],radius : int,max_height : int = None):
+
+        self.weights = (0.5,0.3,0.2)
         self.max_height = max_height
-        self.xcord,self.ycord = position
+
+        self.polar,self.radial = cordinates
+        self.radius = abs(radius*sin(self.polar))
+
+        self.xcord,self.ycord,self.zcord = self.radius*cos(self.radial),self.radius*sin(self.radial),radius*cos(self.polar)
         self.adj_coords = {}
         self.height = None
 
-    def setup_nodes(self,adjacent_pieces : List[Node]):
-
-        for node in [node for node in adjacent_pieces if node is not None]:
-            if node.xcord < self.xcord:
-                if node.ycord < self.ycord:
-                    self.adj_coords['SW'] = node
-                elif node.ycord > self.ycord:
-                    self.adj_coords['NW'] = node
-                else:
+    def setup_nodes(self,adjacent_pieces : List):
+        nodes = [node for node in adjacent_pieces if node is not None]
+        maxrad = nodes[-1].radial
+        for index,node in enumerate(nodes):
+            if node.polar == self.polar:
+                if node.radial == maxrad:
                     self.adj_coords['W'] = node
-            elif node.xcord > self.xcord:
-                if node.ycord < self.ycord:
-                    self.adj_coords['SE'] = node
-                elif node.ycord > self.ycord:
-                    self.adj_coords['NE'] = node
                 else:
                     self.adj_coords['E'] = node
-            else:
-                if node.ycord < self.ycord:
-                    self.adj_coords['S'] =  node
+            elif node.radial == self.radial:
+                if node.polar > self.polar:
+                    self.adj_coords['N'] = node
                 else:
-                    self.adj_coords['N'] =  node
+                    self.adj_coords['S'] = node
+            else:
+                if node.polar > self.polar:
+                    if node.radial > self.radial:
+                        if node.radial == maxrad:
+                            self.adj_coords['NW'] = node
+                        else:
+                            self.adj_coords['NE'] = node
+                    else:
+                        self.adj_coords['NW'] = node
+                elif node.polar < self.polar:
+                    if node.radial > self.radial:
+                        if node.radial == maxrad:
+                            self.adj_coords['SW'] = node
+                        else:
+                            self.adj_coords['SE'] = node
+                    else:
+                        self.adj_coords['SW'] = node
+
+
+
+
 
     def generate_adj_heights(self,custom_weights):
         if custom_weights: self.weights = custom_weights
@@ -87,9 +132,9 @@ class LocationNode:
                                 weighted_average[0] += abs(directional_averages[self.reverse_directions[cardinal_dir]]
                                                                                 - directional_averages[cardinal_dir])
                     # factoring in directional slope, matters less when local area is mostly uniform
-                    weighted_average[0] = weighted_average[0] #*(min(heightval)/max(heightval))
+                    weighted_average[0] = weighted_average[0]*(min(heightval)/max(heightval))
                     # local average,matters less when the local area varies heavily
-                    weighted_average[1] = mean(heightval) #*(min(heightval)/max(heightval))
+                    weighted_average[1] = mean(heightval)*(min(heightval)/max(heightval))
                     weighted_average[2] = randint(int(min(heightval)-3),int(max(heightval)+5)) # random factor
 
                     new_height = sum([value*weight for value,weight in zip(weighted_average,self.weights)])
@@ -105,50 +150,57 @@ class LocationNode:
 
         return [value for value in self.adj_coords.values()]
 
-    def __str__(self,comparison_height = None):
-        if self.max_height:
-            height_ratio = self.height/self.max_height
-        elif comparison_height:
-            height_ratio = self.height/comparison_height
-        else:
-            height_ratio = 1
-        return "".join((Fore.WHITE if height_ratio > 0.9 else
-                        Fore.RED if height_ratio > 0.75 else
-                        Fore.LIGHTRED_EX if height_ratio > 0.65 else
-                        Fore.YELLOW if height_ratio > 0.5 else
-                        Fore.LIGHTYELLOW_EX if height_ratio > 0.4
-                        else Fore.GREEN if height_ratio > 0.1
-                        else Fore.BLUE)
-                        +'('  +f'{self.height}'.ljust(2).ljust(1)+')' +Fore.RESET)
+
 
 class MapContainer:
 
 
-    def __init__(self,xy : List[int],peak_height : int,ismaxheight = True):
-        self.peak_height = peak_height
-        self.nodecontainer = [[None for y in range(xy[1])] for x in range(xy[0])]
+    def __init__(self,radius,levels,peak_height : int,ismaxheight = True):
 
+        self.peak_height = peak_height
+        multipliers = [1,2,4,6,9,10,12,18,20,24,36,72,144,90,120,180][::-1]
+        if len(multipliers) < int(ceil(4*log(levels, 2))):
+            nodes_per_level = multipliers[-1]
+        else:
+            nodes_per_level = multipliers[int(ceil(4*log(levels, 2)))]
+        nodes_per_level = 18
+        polar = [180-90/(levels/2)*x for x in range(levels+1)]
+        radial = [x for x in range(0,360,nodes_per_level)]
+
+        self.nodecontainer = [WrapList([None for y in range(len(radial))]) for x in range(len(polar) )]
         if ismaxheight:
             max = peak_height
         else:
             max = None
-        for x in range(xy[1]):
-            for y in range(xy[0]):
-
-                self.nodecontainer[y][x] = LocationNode([y,xy[1]-x-1],max)
-        for x in range(xy[1]):
-            for y in range(xy[0]):
-                working_node = self.nodecontainer[y][x]
+        for zindex,pol in enumerate(polar):
+            for yindex,rad in enumerate(radial):
+                self.nodecontainer[zindex][yindex] = LocationNode([pol,rad],radius)
+        for zindex, pol in enumerate(polar):
+            for yindex, rad in enumerate(radial):
+                working_node = self.nodecontainer[zindex][yindex]
                 adj_nodes = []
                 for zx,zy in [(1,1),(1,0),(0,1),(-1,-1),(-1,0),(0,-1),(1,-1),(-1,1)]:
                     try:
-                        adj_node = self.nodecontainer[y+zx][x+zy]
+                        if zindex == 0 and zx == -1:
+                            continue
+                        adj_node = self.nodecontainer[zindex+zx][yindex+zy]
                     except IndexError:
+                        print(zx,zy)
                         continue
                     else:
                         adj_nodes.append(adj_node)
                 working_node.setup_nodes(adj_nodes)
-        self.nodecontainer = list(zip(*self.nodecontainer))
+        print('none')
+        t = [nodes for nodes in self.nodecontainer]
+        fig = plt.figure()
+        ax = fig.add_subplot(111,projection='3d')
+        for nodes in t:
+            x,y,z = [],[],[]
+            for node in nodes:
+                print(node.radius,node.xcord)
+                x.append(node.xcord);y.append(node.ycord);z.append(node.zcord)
+            ax.scatter(xs=x,ys=y,zs=z)
+        plt.show()
 
     def set_initial_nodes(self,peaks):
         self.starting_nodes = []
@@ -169,31 +221,16 @@ class MapContainer:
             examined_nodes.append(open_nodes.pop(0))
 
     def scatter(self):
-        nodes = [nodes for nodes in self.nodecontainer]
-        fig = plt.figure()
-        ax = fig.add_subplot(111,projection='3d')
-        x = [] ; y = [] ; z = []
-        for node in nodes:
-            for node in node:
-
-                x.append(node.xcord)
-                y.append(node.ycord)
-                z.append(node.height)
-        X,Y = x,y
-        Z= z
-        ax.plot_trisurf(X,Y,Z,cmap='viridis')
-        plt.show()
-
+        nodes = [node for nodes in self.nodecontainer]
     def __call__(self, peaks : int = 5,custom_weights : List[int] = None):
         self.set_initial_nodes(peaks+1)
         self._generate_heightmap(custom_weights)
-        self.scatter()
     def __str__(self):
         display = "\n".join(["".join([str(pc) for pc in row]) for row in self.nodecontainer])
         return display
 
 if __name__ == '__main__':
-    test = MapContainer([100,100],10)
+    test = MapContainer(radius=20,levels=10,peak_height=5)
     test()
     print(test)
 
