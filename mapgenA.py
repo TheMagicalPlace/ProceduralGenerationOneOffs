@@ -11,7 +11,7 @@ import numpy as np
 class LocationNode:
     reverse_directions = {'N':'S','S':'N','E':'W','W':'E'}
 
-    def __init__(self,position : List[int],max_height : int =None,weights=(0.2,0.7,0.1)):
+    def __init__(self,position : List[int],max_height : int =None,weights=(0.5,0.45,0.05)):
         self.weights = weights
         self.max_height = max_height
         self.xcord,self.ycord = position
@@ -80,24 +80,22 @@ class LocationNode:
                         if cardinal_dir in position:
                             if weighted_average[0]:
                                 # if there is a gradient in one direction this will favor it
-                                weighted_average[0] += abs(directional_averages[self.reverse_directions[cardinal_dir]]
-                                                                                - directional_averages[cardinal_dir])
-                                weighted_average[0] = weighted_average[0]/2
+                                weighted_average[0] += abs(directional_averages[cardinal_dir])
+                                weighted_average[0] = weighted_average[0]/4
                             else:
-                                weighted_average[0] += abs(directional_averages[self.reverse_directions[cardinal_dir]]
-                                                                                - directional_averages[cardinal_dir])
-                    # factoring in directional slope, matters less when local area is mostly uniform
-                    weighted_average[0] = weighted_average[0] #*(min(heightval)/max(heightval))
+                                weighted_average[0] += abs(directional_averages[cardinal_dir])
+                    # factoring in directional slope, matters in lower areas
+                    weighted_average[0] = weighted_average[0]
                     # local average,matters less when the local area varies heavily
-                    weighted_average[1] = mean(heightval) #*(min(heightval)/max(heightval))
-                    weighted_average[2] = randint(int(min(heightval)-3),int(max(heightval)+5)) # random factor
+                    weighted_average[1] = mean(heightval)
+                    weighted_average[2] = randint(int(min(heightval)-5),int(max(heightval)+5)) # random factor
 
                     new_height = sum([value*weight for value,weight in zip(weighted_average,self.weights)])
 
                     if new_height - int(new_height) < 0.5:
-                        node.height = int(new_height)
+                        node.height = new_height
                     else:
-                        node.height = ceil(new_height)
+                        node.height = new_height
                     if node.height > self.max_height: node.height = self.max_height
         else:
             for node,node in self.adj_coords.items():
@@ -181,11 +179,12 @@ class MapContainer:
                 z.append(node.height)
         X,Y = x,y
         Z= z
+        ax.scatter(X,Y,Z,c=Z,cmap='viridis')
         ax.plot_trisurf(X,Y,Z,cmap='viridis')
-        plt.show()
+        #plt.show()
 
-    def __call__(self, peaks : int = 5,custom_weights : List[int] = None):
-        self.set_initial_nodes(peaks+1)
+    def __call__(self, peaks : int = 5,custom_weights : List[float] = None):
+        self.set_initial_nodes(peaks)
         self._generate_heightmap(custom_weights)
         self.scatter()
     def __str__(self):
@@ -193,8 +192,8 @@ class MapContainer:
         return display
 
 if __name__ == '__main__':
-    test = MapContainer([100,100],10)
-    test()
+    test = MapContainer([15,15],5)
+    test(custom_weights=[1,0.5,0.2])
     print(test)
 
 

@@ -1,4 +1,4 @@
-from math import sin,cos,log,ceil
+from math import sin,cos,log,ceil,radians
 from typing import List
 
 from matplotlib import pyplot as plt
@@ -43,7 +43,7 @@ class LocationNode:
         self.weights = (0.5,0.3,0.2)
         self.max_height = max_height
 
-        self.polar,self.radial = cordinates
+        self.polar,self.radial = [radians(c) for c in cordinates]
         self.radius = abs(radius*sin(self.polar))
 
         self.xcord,self.ycord,self.zcord = self.radius*cos(self.radial),self.radius*sin(self.radial),radius*cos(self.polar)
@@ -163,8 +163,9 @@ class MapContainer:
             nodes_per_level = multipliers[-1]
         else:
             nodes_per_level = multipliers[int(ceil(4*log(levels, 2)))]
-        nodes_per_level = 18
-        polar = [180-90/(levels/2)*x for x in range(levels+1)]
+        nodes_per_level = 1
+        stpsz = 1
+        polar = [90-x for x in range(-85,90,int(stpsz))]
         radial = [x for x in range(0,360,nodes_per_level)]
 
         self.nodecontainer = [WrapList([None for y in range(len(radial))]) for x in range(len(polar) )]
@@ -194,12 +195,17 @@ class MapContainer:
         t = [nodes for nodes in self.nodecontainer]
         fig = plt.figure()
         ax = fig.add_subplot(111,projection='3d')
+        x, y, z = [], [], []
         for nodes in t:
-            x,y,z = [],[],[]
+
             for node in nodes:
                 print(node.radius,node.xcord)
                 x.append(node.xcord);y.append(node.ycord);z.append(node.zcord)
-            ax.scatter(xs=x,ys=y,zs=z)
+        #ax.scatter(xs=x,ys=z,zs=y,c=z,cmap='viridis')
+        #ax.scatter(xs=z, ys=x, zs=y, c=z, cmap='viridis')
+        print(set(x),set(x),set(z))
+        ax.scatter(y,x,z,c=y,cmap='viridis')
+        #]x.plot_trisurf(x,y,z,cmap='viridis')
         plt.show()
 
     def set_initial_nodes(self,peaks):
@@ -230,7 +236,7 @@ class MapContainer:
         return display
 
 if __name__ == '__main__':
-    test = MapContainer(radius=20,levels=10,peak_height=5)
+    test = MapContainer(radius=1,levels=40,peak_height=5)
     test()
     print(test)
 
