@@ -166,25 +166,26 @@ class MapContainer:
                  if node not in examined_nodes and node not in open_nodes]
             examined_nodes.append(open_nodes.pop(0))
 
+    def _format_node_data(self):
+        formatted_cords = list(zip(*[[[node.xcord for node in nodes],
+                            [node.ycord for node in nodes],
+                            [node.height for node in nodes]]
+                           for nodes in self.nodecontainer]))
+        x = np.array(formatted_cords[:][0]); y = np.array(formatted_cords[:][1]);z = np.array(formatted_cords[:][2])
+        return x,y,z
+
+
     def scatter(self):
-        nodes = [nodes for nodes in self.nodecontainer]
+        x,y,z = self._format_node_data()
+
         fig = plt.figure()
         ax = fig.add_subplot(111,projection='3d')
-        x = [] ; y = [] ; z = []
-        for node in nodes:
-            for node in node:
-
-                x.append(node.xcord)
-                y.append(node.ycord)
-                z.append(node.height)
-        X,Y = x,y
-
-        xx,yy = np.meshgrid(X,y)
-        __,zz = np.meshgrid(y,z)
 
 
-        #ax.scatter(X,Y,Z,c=Z,cmap='viridis')
-        ax.scatter(xx,yy,zz)
+
+
+        ax.scatter(x,y,z,c=[zzz for zz in z for zzz in zz],cmap='viridis')
+        ax.plot_wireframe(x,y,z,cmap='viridis')
         plt.show()
 
     def __call__(self, peaks : int = 5,custom_weights : List[float] = None):
@@ -196,8 +197,8 @@ class MapContainer:
         return display
 
 if __name__ == '__main__':
-    test = MapContainer([15,15],5)
-    test(custom_weights=[1,0.5,0.2])
-    print(test)
+    test = MapContainer([5,5],5)
+    test(custom_weights=[0.5,0.5,0.2])
+
 
 
