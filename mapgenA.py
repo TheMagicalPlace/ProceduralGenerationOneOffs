@@ -178,10 +178,14 @@ class MapContainer:
                 y.append(node.ycord)
                 z.append(node.height)
         X,Y = x,y
-        Z= z
-        ax.scatter(X,Y,Z,c=Z,cmap='viridis')
-        ax.plot_trisurf(X,Y,Z,cmap='viridis')
-        #plt.show()
+
+        xx,yy = np.meshgrid(X,y)
+        __,zz = np.meshgrid(y,z)
+
+
+        #ax.scatter(X,Y,Z,c=Z,cmap='viridis')
+        ax.scatter(xx,yy,zz)
+        plt.show()
 
     def __call__(self, peaks : int = 5,custom_weights : List[float] = None):
         self.set_initial_nodes(peaks)

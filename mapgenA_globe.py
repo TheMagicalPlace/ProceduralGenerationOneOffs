@@ -1,8 +1,11 @@
-from math import sin,cos,log,ceil,radians
+from math import sin,cos,log,ceil,radians,sqrt
 from typing import List
 
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
+import numpy as np
+
 class WrapList:
 
     def __init__(self,iterator):
@@ -42,11 +45,9 @@ class LocationNode:
 
         self.weights = (0.5,0.3,0.2)
         self.max_height = max_height
-
+        self.circradius = radius
         self.polar,self.radial = [radians(c) for c in cordinates]
-        self.radius = abs(radius*sin(self.polar))
-
-        self.xcord,self.ycord,self.zcord = self.radius*cos(self.radial),self.radius*sin(self.radial),radius*cos(self.polar)
+        self.radius = radius
         self.adj_coords = {}
         self.height = None
 
@@ -82,15 +83,15 @@ class LocationNode:
                     else:
                         self.adj_coords['SW'] = node
 
-
-
-
-
     def generate_adj_heights(self,custom_weights):
+
+        # modifying default weights for height gen
         if custom_weights: self.weights = custom_weights
-        has_height = {}
-        heightval = []
-        no_height = {}
+
+
+        has_height = {} # nodes that already have a height
+        heightval = [] # corresponding heights
+        no_height = {} # nodes without a height
 
         for rel_pos,node in self.adj_coords.items():
             if node.height:
@@ -99,6 +100,8 @@ class LocationNode:
             else:
                 no_height[rel_pos] = node
 
+        # if none of the adj nodes have heights this is skipped, otherwise determines the heigh position relative to
+        # the node
         if has_height:
             wavg,eavg,savg,navg = [],[],[],[]
             directional_averages = [wavg,eavg,savg,navg]
@@ -111,8 +114,8 @@ class LocationNode:
                     eavg.append(node.height)
                 if 'W' in rel:
                     wavg.append(node.height)
+            # this should always occur
             else:
-
                 directional_averages= {direction:(0 if not avg else mean(avg)) for direction,avg
                                         in zip(['N','S','E','W'],directional_averages)}
                 for position,node in no_height.items():
@@ -125,28 +128,35 @@ class LocationNode:
                         if cardinal_dir in position:
                             if weighted_average[0]:
                                 # if there is a gradient in one direction this will favor it
-                                weighted_average[0] += abs(directional_averages[self.reverse_directions[cardinal_dir]]
-                                                                                - directional_averages[cardinal_dir])
+                                weighted_average[0] += directional_averages[cardinal_dir]
                                 weighted_average[0] = weighted_average[0]/2
                             else:
-                                weighted_average[0] += abs(directional_averages[self.reverse_directions[cardinal_dir]]
-                                                                                - directional_averages[cardinal_dir])
+                                weighted_average[0] += directional_averages[cardinal_dir]
+
                     # factoring in directional slope, matters less when local area is mostly uniform
-                    weighted_average[0] = weighted_average[0]*(min(heightval)/max(heightval))
+                    weighted_average[0] = weighted_average[0]
+
                     # local average,matters less when the local area varies heavily
-                    weighted_average[1] = mean(heightval)*(min(heightval)/max(heightval))
-                    weighted_average[2] = randint(int(min(heightval)-3),int(max(heightval)+5)) # random factor
+                    weighted_average[1] = mean(heightval)
+
+                    weighted_average[2] = randint(int(min(heightval)-self.circradius//5),int(max(heightval)+self.circradius//5)) # random factor
+
 
                     new_height = sum([value*weight for value,weight in zip(weighted_average,self.weights)])
-
-                    if new_height - int(new_height) < 0.5:
-                        node.height = int(new_height)
-                    else:
-                        node.height = ceil(new_height)
-                    if node.height > self.max_height: node.height = self.max_height
+                    node.height = new_height
+                    node.radius = node.radius+new_height
+                    if self.max_height and node.height > self.max_height:
+                        node.height = self.max_height
+                        node.radius +=self.max_height
+        # if there is no height for the node, it is randomly generated
         else:
-            for node,node in self.adj_coords.items():
-                    node.height = randrange(self.height-2,self.max_height)
+            for _,node in self.adj_coords.items():
+                if self.max_height:
+                    node.height = randint(self.height-2,self.max_height)
+                    node.radius = node.radius+node.height
+                else:
+                    node.height = randint(int(self.height-self.height//2),int(self.height-self.height//2))
+                    node.radius+=node.height
 
         return [value for value in self.adj_coords.values()]
 
@@ -155,29 +165,29 @@ class LocationNode:
 class MapContainer:
 
 
-    def __init__(self,radius,levels,peak_height : int,ismaxheight = True):
+    def __init__(self,radius,z_levels,nodes_per_level : int,max_height=None):
 
-        self.peak_height = peak_height
-        multipliers = [1,2,4,6,9,10,12,18,20,24,36,72,144,90,120,180][::-1]
-        if len(multipliers) < int(ceil(4*log(levels, 2))):
-            nodes_per_level = multipliers[-1]
-        else:
-            nodes_per_level = multipliers[int(ceil(4*log(levels, 2)))]
-        nodes_per_level = 1
-        stpsz = 1
-        polar = [90-x for x in range(-85,90,int(stpsz))]
-        radial = [x for x in range(0,360,nodes_per_level)]
+        self.max_height = max_height
 
-        self.nodecontainer = [WrapList([None for y in range(len(radial))]) for x in range(len(polar) )]
-        if ismaxheight:
-            max = peak_height
+
+
+        self.polar = [x-90 for x in np.linspace(90,-90,z_levels,endpoint=True)]
+        self.radial = [x for x in np.linspace(0,360-360/nodes_per_level,nodes_per_level,endpoint=True)]
+        self.radius = radius
+        self.nodecontainer = [WrapList([None for y in range(len(self.radial))]) for x in range(len(self.polar) )]
+        self._setup_map()
+
+
+    def _setup_map(self):
+        if self.max_height:
+            max = self.max_height
         else:
             max = None
-        for zindex,pol in enumerate(polar):
-            for yindex,rad in enumerate(radial):
-                self.nodecontainer[zindex][yindex] = LocationNode([pol,rad],radius)
-        for zindex, pol in enumerate(polar):
-            for yindex, rad in enumerate(radial):
+        for zindex,pol in enumerate(self.polar):
+            for yindex,rad in enumerate(self.radial):
+                self.nodecontainer[zindex][yindex] = LocationNode([pol,rad],self.radius)
+        for zindex, pol in enumerate(self.polar):
+            for yindex, rad in enumerate(self.radial):
                 working_node = self.nodecontainer[zindex][yindex]
                 adj_nodes = []
                 for zx,zy in [(1,1),(1,0),(0,1),(-1,-1),(-1,0),(0,-1),(1,-1),(-1,1)]:
@@ -192,27 +202,18 @@ class MapContainer:
                         adj_nodes.append(adj_node)
                 working_node.setup_nodes(adj_nodes)
         print('none')
-        t = [nodes for nodes in self.nodecontainer]
-        fig = plt.figure()
-        ax = fig.add_subplot(111,projection='3d')
-        x, y, z = [], [], []
-        for nodes in t:
 
-            for node in nodes:
-                print(node.radius,node.xcord)
-                x.append(node.xcord);y.append(node.ycord);z.append(node.zcord)
-        #ax.scatter(xs=x,ys=z,zs=y,c=z,cmap='viridis')
-        #ax.scatter(xs=z, ys=x, zs=y, c=z, cmap='viridis')
-        print(set(x),set(x),set(z))
-        ax.scatter(y,x,z,c=y,cmap='viridis')
-        #]x.plot_trisurf(x,y,z,cmap='viridis')
-        plt.show()
-
-    def set_initial_nodes(self,peaks):
+    def set_initial_nodes(self,peaks,initialheight=None):
+        if initialheight and not self.max_height:
+            height = initialheight
+        else:
+            height = self.max_height
         self.starting_nodes = []
+
         for _ in range(peaks):
             node = choice(choice(self.nodecontainer))
-            node.height = self.peak_height
+            node.height = height
+            node.radius += height
             self.starting_nodes.append(node)
 
     def _generate_heightmap(self,custom_weights):
@@ -226,18 +227,63 @@ class MapContainer:
                  if node not in examined_nodes and node not in open_nodes]
             examined_nodes.append(open_nodes.pop(0))
 
+    def _convert_to_cartesian(self,radius,radial,polar):
+
+        x = radius*np.sin(polar)*np.cos(radial)
+        y = radius*np.sin(polar)*np.sin(radial)
+        z = radius*np.cos(polar)
+        print(z)
+
+        return x,y,z
+
     def scatter(self):
-        nodes = [node for nodes in self.nodecontainer]
-    def __call__(self, peaks : int = 5,custom_weights : List[int] = None):
-        self.set_initial_nodes(peaks+1)
+
+        t = [nodes for nodes in self.nodecontainer]
+        fig = plt.figure()
+        fig2 = plt.figure()
+        ax3d = fig2.add_subplot(111,projection='3d')
+        gs = fig.add_gridspec(2, 2)
+        ax2 = fig.add_subplot(gs[1,0])
+        ax = fig.add_subplot(gs[0,:])
+        ax3 = fig.add_subplot(gs[1,1])
+
+        radius,radial,polar = [],[],[]
+
+        for nodes in t:
+            r,rad,pol = [],[],[]
+            for node in nodes:
+                r.append(node.radius);rad.append(node.radial);pol.append(node.polar)
+            r.append(r[0]);rad.append(rad[0]);pol.append(pol[0])
+            radial.append(rad),polar.append(pol),radius.append(r)
+        radial = np.array(radial)
+        polar = np.array(polar)
+        X,Y,Z = self._convert_to_cartesian(radius,radial,polar)
+        print(X.shape,Y.shape,Z.shape)
+        ax3d.plot_wireframe(X,Y,Z,cmap='viridis')
+        #ax3d.plot(X,Y,Z)
+        #ax.scatter(xs=z, ys=x, zs=y, c=z, cmap='viridis')
+        #X,_ = np.meshgrid(xx,xx)
+        #Y,_ = np.meshgrid(yy,yy)
+        #_,Z = np.meshgrid(zz,zz)
+
+
+        #ax3d.plot_surface(Y,Z,X)
+        plt.show()
+
+
+
+    def __call__(self, peaks : int = 5,initial_height= 5,custom_weights : List[int] = None):
+        self.set_initial_nodes(peaks+1,initialheight=initial_height)
         self._generate_heightmap(custom_weights)
     def __str__(self):
-        display = "\n".join(["".join([str(pc) for pc in row]) for row in self.nodecontainer])
-        return display
+        #display = "\n".join(["".join([str(pc) for pc in row]) for row in self.nodecontainer])
+        self.scatter()
+        return ""
+
 
 if __name__ == '__main__':
-    test = MapContainer(radius=1,levels=40,peak_height=5)
-    test()
+    test = MapContainer(radius=500,z_levels=60,nodes_per_level=60)
+    test(peaks=100,initial_height=100,custom_weights=[.6,.3,.2])
     print(test)
-
+    print('yeet')
 
