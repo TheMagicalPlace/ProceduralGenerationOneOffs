@@ -3,7 +3,7 @@ from tkinter.ttk import *
 import queue
 import threading
 from time import sleep,time
-
+from math import log1p
 from random import randrange,randint
 from collections import deque
 class box:
@@ -19,7 +19,7 @@ class box:
         self.cords = canvas.coords(self.boxid)
         self.text = None
         self.last = [xy0[0], xy0[1]]
-        self.momentum = [randrange(-1, 2), randrange(-1, 2)]
+        self.momentum = [randrange(-5, 5), randrange(-5, 5)]
         self.logs = []
         self.iteration = 0
         self._box_info_debug()
@@ -86,63 +86,49 @@ class box:
 
         x, y, w, h = self.canvas.coords(self.boxid)
 
-        x += randint(-3,3)
-        y += randint(-3,3)
 
         self._debug(x,y)
         if self.momentum[0] < 0:
-            x += self.momentum[0]*0.1
+            x += self.momentum[0]
         elif self.momentum[0] > 0:
-            x += self.momentum[0]*0.1
+            x += self.momentum[0]
         else:
-            self.momentum[0] = randint(-1, 1)
+
+            x += self.momentum[0]
         if self.momentum[1] < 0:
-            y += self.momentum[1]*0.1
+            y += self.momentum[1]
         elif self.momentum[1] > 0:
-            y += self.momentum[1]*0.1
+            y += self.momentum[1]
         else:
-            self.momentum[1] = randint(-2, 2)
+
+            y += self.momentum[1]
 
         if x <= 0:
             self.canvas.itemconfigure(self.boxid,fill='green')
             x = 0
-            self.momentum[0] = 1
+            self.momentum[0] = -self.momentum[0]
         elif x >= self.canvas_size[0]-self.width:
             self.canvas.itemconfigure(self.boxid, fill='red')
             x = self.canvas_size[0]-self.width
-            self.momentum[0] = -1
-        else:
+            self.momentum[0] = -self.momentum[0]
 
-            if x < self.last[0]:
-                if self.momentum[0] > 0:
-                    self.momentum[0] -= 1
-                elif self.momentum[0] <= 0:
-                    self.momentum[0] -= randint(0, 1)
-            elif x > self.last[0]:
-                if self.momentum[0] > 0:
-                    self.momentum[0] += 1
+
         if y <= 0:
             self.canvas.itemconfigure(self.boxid,fill='blue')
             y = 0
-            self.momentum[1] = 1
+            self.momentum[1] = -self.momentum[1]
         elif y >= self.canvas_size[1]-self.height+1:
             self.canvas.itemconfigure(self.boxid, fill='yellow')
             y = self.canvas_size[1]-self.height
-            self.momentum[1] = -1
-        else:
-            if y < self.last[1]:
-                if self.momentum[1] > 0:
-                    self.momentum[1] -= 1
-                elif self.momentum[1] <= 0:
-                    self.momentum[1] -= randint(0, 1)
-            elif y > self.last[1]:
-                if self.momentum[1] > 0:
-                    self.momentum[1] += 1
+            self.momentum[1] = -self.momentum[1]
+
 
 
         self.last = [x,y]
         self.canvas.coords(self.boxid, x, y, x+self.width, y+self.height)
         self._box_info_debug()
+        self.momentum = [m/abs(m)*2*log1p(abs(m)) if abs(m*0.99) > 2 else randint(-1,2) for m in self.momentum ]
+        print(self.momentum)
 class Test:
 
     def __init__(self,root):
@@ -156,10 +142,10 @@ class Test:
                 col_box = self.boxes[comp_id]
                 for i in [0,1]:
                     if abs(col_box.momentum[i]+box.momentum[i]) == abs(col_box.momentum[i])+abs(box.momentum[i]):
-                        col_box.momentum[i], box.momentum[i] = box.momentum[i], \
-                                                               col_box.momentum[i]
+
                         by_momentum = sorted([col_box,box],key= lambda b: b.momentum[i])
-                        by_momentum[0].momentum[i] *= .5
+                        by_momentum[0].momentum[i] *= 1
+                        by_momentum[1].momentum[i] *= 1.5
                     else:
 
                         col_box.momentum[i], box.momentum[i] = box.momentum[i], \
@@ -237,10 +223,10 @@ class Test:
         n = 0
 
         while True:
-            self._check_collisions()
+
             for box in self.boxes.values():
                 box.update()
-
+            self._check_collisions()
             sleep(.005)
             self.canvas_main.update()
 
@@ -270,6 +256,5 @@ class Test:
 if __name__ == '__main__':
     root = Tk()
     import random
-    random.seed(123203)
     c = Test(root)
-    c.start(30)
+    c.start(5)
