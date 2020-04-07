@@ -13,10 +13,7 @@ from math import sqrt
 SCALE = 1/10 # scaling factor
 
 
-class TrackedContainer:
-    """Container class for use with tracking specified bodies"""
-    info_canvas = None
-    tracked_bodies = None
+
 
 class NBody:
     G = 6.674 * (1 / 10 ** (11))
@@ -58,12 +55,9 @@ class NBody:
         ru = getr(body) / r
 
         F = NBody.G * self.mass * body.mass * ru / r ** 2
-        self.F = F
+        self.F += F
 
-    def calculate_new_motion_properties(self, t=.10):
-
-        if self._id in [1,10,50,100]:
-            print(f" id = {self._id} | velocity = {self.velocity}")
+    def calculate_new_motion_properties(self, t=.010):
 
         # t = 1
         if self.static:
@@ -75,6 +69,8 @@ class NBody:
 
 
 class BHTreeNode:
+
+
 
     def __init__(self, cords: List[List[int]], parent=None, nbodies=None):
 
@@ -126,7 +122,8 @@ class BHTreeNode:
 
 
 class BHTree:
-
+    info_canvas = None
+    tracked_bodies = None
     def __init__(self, canvas, bodies, mass_range=None):
         self.debug = True  # enables drawing of tree boxes and centers of mass
         self.mass_range = mass_range
@@ -158,20 +155,23 @@ class BHTree:
                            )
         self.canvas.coords(bd, body.x - body.radius, body.y - body.radius, body.x + body.radius, body.y + body.radius)
         if self.debug:
-            if body._id in list(TrackedContainer.tracked_bodies.keys()):
-                txid= TrackedContainer.tracked_bodies[body._id]
-                TrackedContainer.info_canvas.itemconfigure(txid, text=f"Body #{body._id}\n"
+            if body._id in list(self.tracked_bodies.keys()):
+                txid= self.tracked_bodies[body._id]
+                self.info_canvas.itemconfigure(txid, text=f"Body #{body._id}\n"
                                                  f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
                                                  f"Mass : {body.mass:.2e}\n",anchor=CENTER)
 
     def examine_bodies(self):
         for body in self.bodies:
-            if body.static: continue
+            if body.static: continue                        # 'static' bodies are those massive enough by comparison
+                                                            # that negligable force is exerted on them by the other bodies
+
+            body.F = np.array([0,0],dtype='float64')        # need to clear out force from last round
             self.active_body = body
             self.run_nbody(self.root)
             body.calculate_new_motion_properties()
             self._update_body_positions(body)
-            if body._id in TrackedContainer.tracked_bodies.keys():
+            if body._id in self.tracked_bodies.keys():
                 _,tx,_ = self._body_canvas_objs[body._id]
                 self.canvas.coords(tx,body.x,body.y)
                 self.canvas.itemconfigure(tx ,text=f"id : {body._id}")
@@ -254,7 +254,7 @@ class BHTree:
                                      body.y + body.radius,
                                      outline=color, fill=color, width=6)
 
-        if body._id in TrackedContainer.tracked_bodies.keys():
+        if body._id in self.tracked_bodies.keys():
             tx = self.canvas.create_text(body.x, body.y, text=f"id : {body._id}\nvelocity : {body.velocity}")
         else:
             tx = []
@@ -323,7 +323,7 @@ class BHTree:
 def callback(event):
     canvas.delete('all')
 
-    tree = BHTree(canvas, bodies, (min_mass, max_mass))
+    tree = BHTree(canvas, bodies, (10**12,10**15))
 
     def run(event):
         for _ in range(250000):
@@ -331,8 +331,8 @@ def callback(event):
 
     canvas.bind('<1>', run)
 
+def generate_bodies(no_bodies : int, proportion : float,mass_range = (10**12,10**15),star=True):
 
-if __name__ == '__main__':
     bodies = []
     res = []
     ranges = random.sample(range(500), 8)
@@ -347,22 +347,27 @@ if __name__ == '__main__':
         res.append((int(r * cos(theta) + 501), int(r * sin(theta) + 501)))
     res = set(res)
 
-    max_mass = 10 ** 15
-    min_mass = 10**12
+    max_mass,min_mass = mass_range
     mrange = [10 ** 12, 10 ** 15]
-    for aa, bb in random.sample(res, 50):
+    for aa, bb in random.sample(res, int(no_bodies*proportion)):
         mass = random.randint(*mrange)
         max_mass = mass if mass > max_mass else max_mass
         min_mass = mass if mass < min_mass else min_mass
         bodies.append(NBody(mass, random.randint(1, 3), aa, bb))
-    for aa, bb in random.sample(list(product(range(500), range(0, 360))), 10):
+    for aa, bb in random.sample(list(product(range(500), range(0, 360))), int(no_bodies*(1-proportion))):
         mass = random.randint(*mrange)
         aa, bb = (int(aa * cos(bb) + 501), int(aa * sin(bb) + 501))
         max_mass = mass if mass > max_mass else max_mass
         min_mass = mass if mass < min_mass else min_mass
         bodies.append(NBody(mass, random.randint(1, 3), aa, bb))
 
-    bodies.append(NBody(10**25,20,508,508,True))
+    if star:
+        bodies.append(NBody(10**25,20,508,508,True))
+
+    return bodies
+
+if __name__ == '__main__':
+
 
     root = Tk()
     root.geometry("1300x1000")
@@ -377,7 +382,7 @@ if __name__ == '__main__':
     contframe = Frame(master=main)
     info = Canvas(master=contframe,width=300,height=1000,)
 
-
+    bodies = generate_bodies(40,0.2)
 
     hbar = Scrollbar(contframe, orient=VERTICAL)
 
@@ -403,8 +408,8 @@ if __name__ == '__main__':
     contframe.grid(row=0,column=1)
     main.pack()
 
-    TrackedContainer.info_canvas = info
-    TrackedContainer.tracked_bodies = infoboxes
+    BHTree.info_canvas = info
+    BHTree.tracked_bodies = infoboxes
 
 
     mainloop()
