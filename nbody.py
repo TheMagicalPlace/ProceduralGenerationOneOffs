@@ -43,8 +43,8 @@ class NBody:
         self.y: int = y                 # canvas y position
 
         # Initial velocity vector is determined randomly
-        self.velocity = np.array([random.randint(-100, 100) / 100*SCALE,
-                                  random.randint(-100, 100) / 100*SCALE],
+        self.velocity = np.array([random.randint(-100, 100)*SCALE,
+                                  random.randint(-100, 100)*SCALE],
                                  dtype='float64')
 
         self.acceleration = np.array([0, 0], dtype='float64')
@@ -70,6 +70,9 @@ class NBody:
 
         # distance scalar between bodies
         r = self.get_distance_scalar(body)
+
+        # nonsense results if r<1
+        if r <1 :r =1
 
         # position vector
         ru = getr(body) / r
@@ -156,7 +159,7 @@ class BHTree:
     tracked_bodies = None
 
     def __init__(self, canvas, bodies, mass_range=None):
-        self.debug = True  # enables drawing of tree boxes and centers of mass
+        self.debug = 1  # enables drawing of tree boxes and centers of mass
         self.mass_range = mass_range
         self.max_depth = 0
         self._body_canvas_objs = {}
@@ -171,16 +174,17 @@ class BHTree:
         self.s = sqrt(canvas.winfo_width() ** 2 + canvas.winfo_height() ** 2)
         self.root = BHTreeNode(cords)
         self.root.bodies = bodies
-        self.ratio = 0.2  # min ratio of s/d
+        self.ratio = 0.5  # min ratio of s/d
         self.subdivide(self.root, 0)
         self.root._find_com()
-        self._show_debug_info(self.root)
+        if self.debug == 2:
+            self._show_debug_info(self.root)
 
     def _update_body_positions(self, body):
         bd, tx, momentum_radius = self._body_canvas_objs[body]
         self.canvas.coords(momentum_radius,
-                           body.x + body.radius,
-                           body.y + body.radius,
+                           body.x ,
+                           body.y,
                            body.x + body.radius + body.velocity[0],
                            body.y + body.radius + body.velocity[1]
                            )
@@ -207,7 +211,6 @@ class BHTree:
                 self.canvas.coords(tx,body.x,body.y)
                 self.canvas.itemconfigure(tx ,text=f"id : {body._id}")
 
-        self.canvas.update()
 
     def run_nbody(self, parent):
         individual_debug = False  # set manually to debug individual bodies
@@ -232,7 +235,7 @@ class BHTree:
             if parent.bodies[0] == self.active_body:
                 pass
             else:
-                if parent.bodies[0].static: return
+                #if parent.bodies[0].static: return
                 self.active_body.calculate_force(parent.bodies[0])
 
         # Empty nodes exert no force
@@ -290,8 +293,8 @@ class BHTree:
         else:
             tx = []
 
-        momentum_arrow = self.canvas.create_line(body.x + body.radius,
-                                                 body.y + body.radius,
+        momentum_arrow = self.canvas.create_line(body.x,
+                                                 body.y ,
                                                  body.x + body.radius + body.velocity[0],
                                                  body.y + body.radius + body.velocity[1],
                                                  arrow=LAST
@@ -323,11 +326,11 @@ class BHTree:
         else:
             self._tree_line_objs += [a, b]
 
-        self.canvas.update()
+
 
     def subdivide(self, node, depth):
 
-        if self.debug:
+        if self.debug==2:
             self._show_debug_info(node)
             time.sleep(0.05)
 
@@ -346,7 +349,7 @@ class BHTree:
                 node.childs.append(n)
         node._find_com()
 
-        if self.debug:
+        if self.debug==2:
             self._show_debug_info(node)
             time.sleep(0.05)
 
@@ -359,7 +362,7 @@ def callback(event):
     def run(event):
         for _ in range(250000):
             tree.examine_bodies()
-
+            canvas.update()
     canvas.bind('<1>', run)
 
 def generate_bodies(no_bodies : int, proportion : float,mass_range = (10**12,10**15),star=True):
@@ -393,54 +396,55 @@ def generate_bodies(no_bodies : int, proportion : float,mass_range = (10**12,10*
         bodies.append(NBody(mass, random.randint(1, 3), aa, bb))
 
     if star:
-        bodies.append(NBody(10**25,20,508,508,True))
+        bodies.append(NBody(10**17,20,508,508,True))
 
     return bodies
 
 if __name__ == '__main__':
 
+    bodies = generate_bodies(100, 0.5)
+    tracked = random.sample(bodies,10)
+    tracked = sorted(tracked,key=lambda body : body._id)
+    infoboxes = {}
 
     root = Tk()
     root.geometry("1300x1000")
     root.resizable(True,False)
-    main = Frame(root,height=1000)
-    canvas = Canvas(master=main, width=1000, height=1000)
 
+    main = Frame(root,height=1000)
+
+    canvas = Canvas(master=main, width=1000, height=1000)
     canvas.bind('<1>', callback)
 
-    canvas.grid(column=0,row=0,rowspan=2,sticky=N)
-
     contframe = Frame(master=main)
-    info = Canvas(master=contframe,width=300,height=1000,)
 
-    bodies = generate_bodies(40,0.2)
+    info = Canvas(master=contframe,width=300,height=1000)
 
     hbar = Scrollbar(contframe, orient=VERTICAL)
-
     hbar.config(command=info.yview)
-    info.config(yscrollcommand=hbar.set)
 
-    info.pack(side=LEFT)
-    hbar.pack(side=RIGHT,fill=Y)
+    info.config(yscrollcommand=hbar.set)
+    info.config(scrollregion=(0, 0, 0, len(tracked) * 100 + 110))
     info.create_text(150,10,text="Tracked Bodies",anchor=CENTER)
-    infoboxes = {}
-    tracked = random.sample(bodies,10)
-    tracked = sorted(tracked,key=lambda body : body._id)
     info.create_line(0, 0, 0, 1000, width=2)
+
     for ycord,body in enumerate(tracked,start=1):
         frm = info.create_text(150,ycord*75,text=f"Body #{body._id}\n"
                                                  f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
                                                  f"Mass : {body.mass:.2e}\n",anchor=CENTER)
         infoboxes[body._id] = frm
-    info.config(scrollregion=(0,0,0,len(tracked)*100+110))
 
-    ## info frame setup
-
-    contframe.grid(row=0,column=1)
-    main.pack()
-
-    BHTree.info_canvas = info
     BHTree.tracked_bodies = infoboxes
+    BHTree.info_canvas = info
 
+
+
+    info.pack(side=LEFT)
+    hbar.pack(side=RIGHT,fill=Y)
+
+    contframe.grid(row=0, column=1)
+    canvas.grid(column=0, row=0, rowspan=2, sticky=N)
+
+    main.pack()
 
     mainloop()
