@@ -16,9 +16,14 @@ SCALE = 1/10 # scaling factor
 
 
 class NBody:
+    """Class for the creation and data tracking of particle objects"""
+
+    # Gravitational Constant
     G = 6.674 * (1 / 10 ** (11))
 
+    # Used to generate a unique id for each body
     __id = (i for i in range(100000))
+
 
     def __hash__(self):
         return self._id
@@ -30,36 +35,52 @@ class NBody:
             return False
 
     def __init__(self, mass, radius, x, y, static=False):
-        self.static = static
-        self._id = next(NBody.__id)
+        self.static = static            # specifies if the body should not have momentum calculations done on it
+        self._id = next(NBody.__id)     # unique identifier
         self.mass: int = mass
         self.radius: int = radius
-        self.x: int = x
-        self.y: int = y
-        self.velocity = np.array([random.randint(-100, 100) / 100*SCALE, random.randint(-100, 100) / 100*SCALE], dtype='float64')
+        self.x: int = x                 # canvas x position
+        self.y: int = y                 # canvas y position
+
+        # Initial velocity vector is determined randomly
+        self.velocity = np.array([random.randint(-100, 100) / 100*SCALE,
+                                  random.randint(-100, 100) / 100*SCALE],
+                                 dtype='float64')
+
         self.acceleration = np.array([0, 0], dtype='float64')
         self.center_of_mass = np.array([x, y], dtype='float64')
-
         self.F = np.array([0, 0], dtype='float64')
 
 
 
     def get_distance_scalar(self, body):
+        """square distance scalar between """
         getr = lambda body:  body.center_of_mass-self.center_of_mass
         return sqrt(sum(np.vectorize(getr)(body) ** 2))
 
     def calculate_force(self, body):
+        """ Calculates the vector force on the object body by another body using Newtons law
+        of gravitation. Force is calculated as a sum of each other body/node and is reset to zero each new round.
+
+        F = G*m1*m2/|r^2| <x2-x1,y2-y1>
+        """
+
+        # returns distance vector between bodies
         getr = lambda body:  body.center_of_mass-self.center_of_mass
 
+        # distance scalar between bodies
         r = self.get_distance_scalar(body)
+
+        # position vector
         ru = getr(body) / r
 
         F = NBody.G * self.mass * body.mass * ru / r ** 2
         self.F += F
 
     def calculate_new_motion_properties(self, t=.010):
+        """Calculates the current acceleration,velocity,and position of the center of mass for the body"""
 
-        # t = 1
+        # static bodies do not have meaningful amounts of force exerted on them, so no calculations are done
         if self.static:
             return
         self.acceleration = self.F / self.mass
@@ -69,17 +90,21 @@ class NBody:
 
 
 class BHTreeNode:
-
+    """Node used for approximating acting force using the Barnes-Hut approximation"""
 
 
     def __init__(self, cords: List[List[int]], parent=None, nbodies=None):
 
+        # determining values used to update canvas
         x, y = list(zip(*cords))
         self.x0, self.x = x
         self.y0, self.y = y
         self.dx = x[1] - x[0]
         self.dy = y[1] - y[0]
+
         self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy])
+
+        # size of node
         self.s = self.dx
         self.parent = parent
         self.childs = []
@@ -87,7 +112,7 @@ class BHTreeNode:
         self.mass = 0
 
     def _check_membership(self, bodies):
-
+        """ Finding the bodies contained within the boundaries of the node and finding the nodes center of mass"""
         for body in bodies:
             self.parent.mass += body.mass
             if self.x0 <= body.x < self.x:
@@ -103,13 +128,16 @@ class BHTreeNode:
             self._find_com()
 
     def _find_com(self, depth=None):
-
+        """ Find the nodes center of mass"""
+        # center of mass is just the bodies position if only one body
         if len(self.bodies) == 1:
             body = self.bodies[0]
             self.center_of_mass = np.array([body.x, body.y], dtype='float64')
+        # if no bodies are contained, the center of mass is just taken as the center of the node (exerts no force)
         elif len(self.childs) == 0:
             self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy], dtype='float64')
 
+        # for multiple bodies, calculate the center of mass normally
         else:
             m_sum = 0
             cm_x = 0
@@ -122,8 +150,11 @@ class BHTreeNode:
 
 
 class BHTree:
+
+
     info_canvas = None
     tracked_bodies = None
+
     def __init__(self, canvas, bodies, mass_range=None):
         self.debug = True  # enables drawing of tree boxes and centers of mass
         self.mass_range = mass_range
