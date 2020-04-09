@@ -355,14 +355,15 @@ class BHTree:
             tx = self.canvas.create_text(body.x, body.y, text=f"id : {body._id}\nvelocity : {body.velocity}")
         else:
             tx = []
-
-        momentum_arrow = self.canvas.create_line(body.x,
-                                                 body.y,
-                                                 body.x + body.radius + body.velocity[0],
-                                                 body.y + body.radius + body.velocity[1],
-                                                 arrow=LAST
-                                                 )
-
+        if body.velocity[0] !=  0 and body.velocity[1] != 0:
+            momentum_arrow = self.canvas.create_line(body.x,
+                                                     body.y,
+                                                     body.x + body.radius + body.velocity[0]//10**log(abs(body.velocity[0]),35),
+                                                     body.y + body.radius + body.velocity[1]//10**log(abs(body.velocity[1]),35),
+                                                     arrow=LAST
+                                                     )
+        else:
+            momentum_arrow = None
         self._body_canvas_objs[body] = (bd, tx, momentum_arrow)
 
     def _show_debug_info(self, node, show_mass=True):
@@ -461,6 +462,36 @@ def generate_bodies(no_bodies: int, proportion: float, mass_range=MASS_RANGE, st
     return bodies
 
 
+def reset(canvas,info):
+
+    canvas.delete("all")
+    info.delete("all")
+    bodies = generate_bodies(10, 0.5)
+    tracked = random.sample(bodies, 10)
+    tracked = sorted(tracked, key=lambda body: body._id)
+    infoboxes = {}
+    for ycord, body in enumerate(tracked, start=1):
+        frm = info.create_text(150, ycord * 75, text=f"Body #{body._id}\n"
+                                                     f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
+                                                     f"Mass : {body.mass:.2e}\n", anchor=CENTER)
+        infoboxes[body._id] = frm
+    BHTree.tracked_bodies = infoboxes
+    BHTree.info_canvas = info
+    for t in tracked:
+        t.trail_iter = t.show_pathing(canvas)
+    canvas.update()
+    info.update()
+    tree = BHTree(canvas, bodies, MASS_RANGE)
+    info.create_text(150, 10, text="Tracked Bodies", anchor=CENTER)
+    info.create_line(0, 0, 0, 1000, width=2)
+
+    def run(event):
+        for _ in range(250000):
+            tree.examine_bodies()
+            canvas.update()
+
+    canvas.bind('<1>', run)
+
 if __name__ == '__main__':
     canvas_w,canvas_h = 1440,1440
     NBody.set_scaling_factor(canvas_w,canvas_h)
@@ -499,11 +530,12 @@ if __name__ == '__main__':
 
     BHTree.tracked_bodies = infoboxes
     BHTree.info_canvas = info
-
+    Button(master=contframe, text="Reset", w=40,command=lambda *args: reset(canvas, info)).pack()
     info.pack(side=LEFT)
     hbar.pack(side=RIGHT, fill=Y)
-
+    #Button(master=main, text="Reset", command=lambda *args : reset(canvas,info)).grid()
     contframe.grid(row=0, column=1)
+
     canvas.grid(column=0, row=0, rowspan=2, sticky=N)
 
     for t in tracked:
