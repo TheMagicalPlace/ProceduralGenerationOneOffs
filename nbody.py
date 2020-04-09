@@ -10,16 +10,35 @@ import numpy as np
 
 from math import sqrt
 
-SCALE = 1/10 # scaling factor
+SCALE = 1 / 10  # scaling factor
+UPSCALE = 10e7  # scaling factor for distances
+SOLAR_SCALING_FACTOR = 9.09e12  # meters, appx. diameter of the solar system (out to neptune) in meters
+from math import log
+NBODY_SCALING_FACTOR = None  # set on runtime
+MASS_RANGE = (10e15,10e22)
 
+class BodyNodeMixins:
 
+    _body_scaling_factor = 1  # used to calculate actual position from canvas position
+    _has_been_set = False  # scaling factor shouldn't be modified after being set
 
+    @classmethod
+    def set_scaling_factor(cls, canvas_width: int,
+                           canvas_height: int = 0,
+                           scaling_factor: float = SOLAR_SCALING_FACTOR):
+        if not cls._has_been_set:
+            pxscale = max(canvas_width, canvas_height)  # maximum is used for canvas scaling
+            cls._body_scaling_factor = scaling_factor / pxscale  # distance per px (i.e. m/px)
+            cls._has_been_set = True  # should only be set once to avoid issues
 
-class NBody:
+            # self is passed implicitly, won't work outside an instance without explicit self and set scaling factor
+            cls._getr = lambda self,body: (body.center_of_mass - self.center_of_mass)
+
+class NBody(BodyNodeMixins):
     """Class for the creation and data tracking of particle objects"""
 
     # Gravitational Constant
-    G = 6.674 * (1 / 10 ** (11))
+    G = 6.674 * (1 / 10 ** (11))  # m^3 kg^-1 s^-2
 
     # Used to generate a unique id for each body
     __id = (i for i in range(100000))
@@ -35,28 +54,45 @@ class NBody:
             return False
 
     def __init__(self, mass, radius, x, y, static=False):
-        self.static = static            # specifies if the body should not have momentum calculations done on it
-        self._id = next(NBody.__id)     # unique identifier
+        if not self._has_been_set:
+            raise Exception("Scaling factor must be set to NBody before initialization"
+                            ", use NBody.set_scaling_factor to set.")
+        print(NBody._body_scaling_factor)
+        self.static = static  # specifies if the body should not have momentum calculations done on it
+        self._id = next(NBody.__id)  # unique identifier
         self.mass: int = mass
         self.radius: int = radius
-        self.x: int = x                 # canvas x position
-        self.y: int = y                 # canvas y position
-
+        self.x: int = x  # canvas x position
+        self.y: int = y  # canvas y position
+        self.x_actual = x * SOLAR_SCALING_FACTOR  # actual position for calculations (m)
+        self.y_actual = y * SOLAR_SCALING_FACTOR  # actual position for calculations (m)
         # Initial velocity vector is determined randomly
-        self.velocity = np.array([random.randint(-100, 100)*SCALE,
-                                  random.randint(-100, 100)*SCALE],
+        self.velocity = np.array([random.randint(-10000, 10000) ,
+                                  random.randint(-10000, 10000) ],
                                  dtype='float64')
 
         self.acceleration = np.array([0, 0], dtype='float64')
-        self.center_of_mass = np.array([x, y], dtype='float64')
-        self.F = np.array([0, 0], dtype='float64')
+        self.center_of_mass = np.array([x, y], dtype='float64')*NBody._body_scaling_factor     # in meters
+        self.__F = np.array([0, 0], dtype='float64')
+        self.reset_F = lambda : self.__F.fill(0)
 
+    @property
+    def F(self):
+        return self.__F
+
+    @F.setter
+    def F(self,F = None):
+        """should generally only be used to reset F to zero on a new round but can be used to set F manually
+        """
+        if isinstance(F,np.ndarray):
+            self.__F = F
+        else:
+            self.__F = np.array([0, 0], dtype='float64')
 
 
     def get_distance_scalar(self, body):
         """square distance scalar between """
-        getr = lambda body:  body.center_of_mass-self.center_of_mass
-        return sqrt(sum(np.vectorize(getr)(body) ** 2))
+        return sqrt(sum(np.vectorize(self._getr)(body) ** 2), )  # in meters
 
     def calculate_force(self, body):
         """ Calculates the vector force on the object body by another body using Newtons law
@@ -66,35 +102,38 @@ class NBody:
         """
 
         # returns distance vector between bodies
-        getr = lambda body:  body.center_of_mass-self.center_of_mass
 
         # distance scalar between bodies
         r = self.get_distance_scalar(body)
 
         # nonsense results if r<1
-        if r <1 :r =1
+        if r < 1: r = 1
 
         # position vector
-        ru = getr(body) / r
-
+        # noinspection PyArgumentList
+        ru = self._getr(body) / r
+        # F = np.array([0,0],dtype="Float64")
         F = NBody.G * self.mass * body.mass * ru / r ** 2
-        self.F += F
 
-    def calculate_new_motion_properties(self, t=.010):
+        try:
+            self.F =self.F + F
+
+        except Exception as e:
+            print(e)
+
+    def calculate_new_motion_properties(self, timestep=3600*24):
         """Calculates the current acceleration,velocity,and position of the center of mass for the body"""
 
         # static bodies do not have meaningful amounts of force exerted on them, so no calculations are done
         if self.static:
             return
         self.acceleration = self.F / self.mass
-        self.velocity = self.acceleration * t + self.velocity
-        self.center_of_mass = self.center_of_mass + self.velocity * t - (0.5) * self.acceleration * t ** 2
-        self.x, self.y = self.center_of_mass
+        self.velocity = self.acceleration*timestep + self.velocity
+        self.center_of_mass = self.center_of_mass + self.velocity * timestep - (0.5) * self.acceleration * timestep** 2
+        self.x, self.y = self.center_of_mass//NBody._body_scaling_factor
 
-
-class BHTreeNode:
+class BHTreeNode(BodyNodeMixins):
     """Node used for approximating acting force using the Barnes-Hut approximation"""
-
 
     def __init__(self, cords: List[List[int]], parent=None, nbodies=None):
 
@@ -105,7 +144,7 @@ class BHTreeNode:
         self.dx = x[1] - x[0]
         self.dy = y[1] - y[0]
 
-        self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy])
+        self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy])*self._body_scaling_factor
 
         # size of node
         self.s = self.dx
@@ -135,10 +174,12 @@ class BHTreeNode:
         # center of mass is just the bodies position if only one body
         if len(self.bodies) == 1:
             body = self.bodies[0]
-            self.center_of_mass = np.array([body.x, body.y], dtype='float64')
+            self.center_of_mass = body.center_of_mass
         # if no bodies are contained, the center of mass is just taken as the center of the node (exerts no force)
         elif len(self.childs) == 0:
-            self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy], dtype='float64')
+            self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy],
+                                           dtype='float64')
+            self.center_of_mass = self.center_of_mass*self._body_scaling_factor
 
         # for multiple bodies, calculate the center of mass normally
         else:
@@ -151,17 +192,17 @@ class BHTreeNode:
                 m_sum += c.mass
             self.center_of_mass = np.array([cm_x // m_sum, cm_y // m_sum], dtype='float64')
 
-
 class BHTree:
-
-
     info_canvas = None
     tracked_bodies = None
+    canvas_width = 1000  # used for scaling distances
+    canvas_height = 1000  # used for scaling distances
 
-    def __init__(self, canvas, bodies, mass_range=None):
+
+    def __init__(self, canvas, bodies, mass_range=MASS_RANGE):
         self.debug = 1  # enables drawing of tree boxes and centers of mass
-        self.mass_range = mass_range
-        self.max_depth = 0
+        self.mass_range = mass_range  # used for color representation of body mass relative to eachother
+        self.max_depth = 0  # if set, nodes no deeper than this will be examined
         self._body_canvas_objs = {}
         self._tree_line_objs = []
         self.canvas = canvas
@@ -170,11 +211,15 @@ class BHTree:
         for b in self.bodies:
             self._show_body(b)
         canvas.update()
+
+        BHTree.canvas_width = canvas.winfo_width()
+        BHTree.canvas_height = canvas.winfo_height()
+
         cords = [[0, 0], [canvas.winfo_width(), canvas.winfo_height()]]
         self.s = sqrt(canvas.winfo_width() ** 2 + canvas.winfo_height() ** 2)
         self.root = BHTreeNode(cords)
         self.root.bodies = bodies
-        self.ratio = 0.5  # min ratio of s/d
+        self.ratio = 0.1  # min ratio of s/d
         self.subdivide(self.root, 0)
         self.root._find_com()
         if self.debug == 2:
@@ -183,34 +228,33 @@ class BHTree:
     def _update_body_positions(self, body):
         bd, tx, momentum_radius = self._body_canvas_objs[body]
         self.canvas.coords(momentum_radius,
-                           body.x ,
+                           body.x,
                            body.y,
-                           body.x + body.radius + body.velocity[0],
-                           body.y + body.radius + body.velocity[1]
+                           body.x + body.radius + body.velocity[0]/(10**log(abs(body.velocity[0]),35)),
+                           body.y + body.radius + body.velocity[1]/(10**log(abs(body.velocity[1]),35))
                            )
         self.canvas.coords(bd, body.x - body.radius, body.y - body.radius, body.x + body.radius, body.y + body.radius)
         if self.debug:
             if body._id in list(self.tracked_bodies.keys()):
-                txid= self.tracked_bodies[body._id]
+                txid = self.tracked_bodies[body._id]
                 self.info_canvas.itemconfigure(txid, text=f"Body #{body._id}\n"
-                                                 f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
-                                                 f"Mass : {body.mass:.2e}\n",anchor=CENTER)
+                                                          f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
+                                                          f"Mass : {body.mass:.2e}\n", anchor=CENTER)
 
     def examine_bodies(self):
         for body in self.bodies:
-            if body.static: continue                        # 'static' bodies are those massive enough by comparison
-                                                            # that negligable force is exerted on them by the other bodies
+            if body.static: continue  # 'static' bodies are those massive enough by comparison
+            # that negligable force is exerted on them by the other bodies
 
-            body.F = np.array([0,0],dtype='float64')        # need to clear out force from last round
+            body.reset_F()  # need to clear out force from last round
             self.active_body = body
             self.run_nbody(self.root)
             body.calculate_new_motion_properties()
             self._update_body_positions(body)
             if body._id in self.tracked_bodies.keys():
-                _,tx,_ = self._body_canvas_objs[body._id]
-                self.canvas.coords(tx,body.x,body.y)
-                self.canvas.itemconfigure(tx ,text=f"id : {body._id}")
-
+                _, tx, _ = self._body_canvas_objs[body._id]
+                self.canvas.coords(tx, body.x, body.y)
+                self.canvas.itemconfigure(tx, text=f"id : {body._id}")
 
     def run_nbody(self, parent):
         individual_debug = False  # set manually to debug individual bodies
@@ -224,7 +268,7 @@ class BHTree:
         ## DEBUG CODE ##
         if self.debug and individual_debug:  # only used for examining individual bodies, needs to be set manually
             for body in parent.bodies:
-                bd, _,_ = self._body_canvas_objs[body]
+                bd, _, _ = self._body_canvas_objs[body]
                 last_colors.append(self.canvas.itemcget(bd, 'outline'))
                 self.canvas.itemconfig(bd, fill='#ff69b4', outline='#ff69b4')
         ## END DEBUG CODE ##
@@ -235,7 +279,7 @@ class BHTree:
             if parent.bodies[0] == self.active_body:
                 pass
             else:
-                #if parent.bodies[0].static: return
+                # if parent.bodies[0].static: return
                 self.active_body.calculate_force(parent.bodies[0])
 
         # Empty nodes exert no force
@@ -257,7 +301,7 @@ class BHTree:
         # returns to normal color
         if self.debug and individual_debug:
             for i, body in enumerate(parent.bodies):
-                bd, _,_ = self._body_canvas_objs[body]
+                bd, _, _ = self._body_canvas_objs[body]
                 self.canvas.itemconfig(bd, outline=last_colors[i])
             self.canvas.update()
         ## END DEBUG CODE ##
@@ -294,7 +338,7 @@ class BHTree:
             tx = []
 
         momentum_arrow = self.canvas.create_line(body.x,
-                                                 body.y ,
+                                                 body.y,
                                                  body.x + body.radius + body.velocity[0],
                                                  body.y + body.radius + body.velocity[1],
                                                  arrow=LAST
@@ -317,20 +361,18 @@ class BHTree:
                     dp += 1
                     n = n.parent
                 w = 40 - (dp * 8)
-                c = self.canvas.create_oval(node.center_of_mass[0] - w,
-                                            node.center_of_mass[1] - w,
-                                            node.center_of_mass[0] + w,
-                                            node.center_of_mass[1] + w,
+                c = self.canvas.create_oval(node.center_of_mass[0]//node.__body_scaling_factor - w,
+                                            node.center_of_mass[1]//node.__body_scaling_factor  - w,
+                                            node.center_of_mass[0]//node.__body_scaling_factor  + w,
+                                            node.center_of_mass[1]//node.__body_scaling_factor  + w,
                                             width=1)
                 self._tree_line_objs += [a, b, c]
         else:
             self._tree_line_objs += [a, b]
 
-
-
     def subdivide(self, node, depth):
 
-        if self.debug==2:
+        if self.debug == 2:
             self._show_debug_info(node)
             time.sleep(0.05)
 
@@ -349,24 +391,23 @@ class BHTree:
                 node.childs.append(n)
         node._find_com()
 
-        if self.debug==2:
+        if self.debug == 2:
             self._show_debug_info(node)
             time.sleep(0.05)
 
-
 def callback(event):
+
     canvas.delete('all')
-
-    tree = BHTree(canvas, bodies, (10**12,10**15))
-
+    tree = BHTree(canvas, bodies, MASS_RANGE)
     def run(event):
         for _ in range(250000):
             tree.examine_bodies()
             canvas.update()
+
     canvas.bind('<1>', run)
 
-def generate_bodies(no_bodies : int, proportion : float,mass_range = (10**12,10**15),star=True):
 
+def generate_bodies(no_bodies: int, proportion: float, mass_range=MASS_RANGE, star=True):
     bodies = []
     res = []
     ranges = random.sample(range(500), 8)
@@ -381,66 +422,66 @@ def generate_bodies(no_bodies : int, proportion : float,mass_range = (10**12,10*
         res.append((int(r * cos(theta) + 501), int(r * sin(theta) + 501)))
     res = set(res)
 
-    max_mass,min_mass = mass_range
-    mrange = [10 ** 12, 10 ** 15]
-    for aa, bb in random.sample(res, int(no_bodies*proportion)):
-        mass = random.randint(*mrange)
+    max_mass, min_mass = mass_range
+    for aa, bb in random.sample(res, int(no_bodies * proportion)):
+        mass = random.randint(*mass_range)
         max_mass = mass if mass > max_mass else max_mass
         min_mass = mass if mass < min_mass else min_mass
         bodies.append(NBody(mass, random.randint(1, 3), aa, bb))
-    for aa, bb in random.sample(list(product(range(500), range(0, 360))), int(no_bodies*(1-proportion))):
-        mass = random.randint(*mrange)
+    for aa, bb in random.sample(list(product(range(500), range(0, 360))), int(no_bodies * (1 - proportion))):
+        mass = random.randint(*mass_range)
         aa, bb = (int(aa * cos(bb) + 501), int(aa * sin(bb) + 501))
         max_mass = mass if mass > max_mass else max_mass
         min_mass = mass if mass < min_mass else min_mass
         bodies.append(NBody(mass, random.randint(1, 3), aa, bb))
 
     if star:
-        bodies.append(NBody(10**17,20,508,508,True))
-
+        # massive as the sun
+        bodies.append(NBody(10 ** 29, 20, 1440 / 2, 1440 / 2, True))
+        bodies[-1].velocity = np.array([0, 0])*NBody._body_scaling_factor
     return bodies
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
+    canvas_w,canvas_h = 1440,1440
+    NBody.set_scaling_factor(canvas_w,canvas_h)
     bodies = generate_bodies(100, 0.5)
-    tracked = random.sample(bodies,10)
-    tracked = sorted(tracked,key=lambda body : body._id)
+    tracked = random.sample(bodies, 10)
+    tracked = sorted(tracked, key=lambda body: body._id)
     infoboxes = {}
 
     root = Tk()
-    root.geometry("1300x1000")
-    root.resizable(True,False)
+    root.geometry(f"{canvas_w+300}x{canvas_h}")
+    root.resizable(True, False)
 
-    main = Frame(root,height=1000)
+    main = Frame(root, height=1000)
 
-    canvas = Canvas(master=main, width=1000, height=1000)
+    canvas = Canvas(master=main, width=canvas_w, height=canvas_h)
     canvas.bind('<1>', callback)
 
     contframe = Frame(master=main)
 
-    info = Canvas(master=contframe,width=300,height=1000)
+    info = Canvas(master=contframe, width=300, height=canvas_h)
 
     hbar = Scrollbar(contframe, orient=VERTICAL)
     hbar.config(command=info.yview)
 
     info.config(yscrollcommand=hbar.set)
     info.config(scrollregion=(0, 0, 0, len(tracked) * 100 + 110))
-    info.create_text(150,10,text="Tracked Bodies",anchor=CENTER)
+    info.create_text(150, 10, text="Tracked Bodies", anchor=CENTER)
     info.create_line(0, 0, 0, 1000, width=2)
 
-    for ycord,body in enumerate(tracked,start=1):
-        frm = info.create_text(150,ycord*75,text=f"Body #{body._id}\n"
-                                                 f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
-                                                 f"Mass : {body.mass:.2e}\n",anchor=CENTER)
+    for ycord, body in enumerate(tracked, start=1):
+        frm = info.create_text(150, ycord * 75, text=f"Body #{body._id}\n"
+                                                     f"Velocity : {body.velocity[0]:.2e},{body.velocity[1]:.2e}\n"
+                                                     f"Mass : {body.mass:.2e}\n", anchor=CENTER)
         infoboxes[body._id] = frm
 
     BHTree.tracked_bodies = infoboxes
     BHTree.info_canvas = info
 
-
-
     info.pack(side=LEFT)
-    hbar.pack(side=RIGHT,fill=Y)
+    hbar.pack(side=RIGHT, fill=Y)
 
     contframe.grid(row=0, column=1)
     canvas.grid(column=0, row=0, rowspan=2, sticky=N)
