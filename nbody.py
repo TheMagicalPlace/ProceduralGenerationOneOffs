@@ -15,7 +15,7 @@ UPSCALE = 10e7  # scaling factor for distances
 SOLAR_SCALING_FACTOR = 9.09e12  # meters, appx. diameter of the solar system (out to neptune) in meters
 from math import log
 NBODY_SCALING_FACTOR = None  # set on runtime
-MASS_RANGE = (10e15,10e22)
+MASS_RANGE = (10e15,10e24)
 
 class BodyNodeMixins:
 
@@ -44,6 +44,7 @@ class NBody(BodyNodeMixins):
     __id = (i for i in range(100000))
 
 
+
     def __hash__(self):
         return self._id
 
@@ -57,7 +58,8 @@ class NBody(BodyNodeMixins):
         if not self._has_been_set:
             raise Exception("Scaling factor must be set to NBody before initialization"
                             ", use NBody.set_scaling_factor to set.")
-        print(NBody._body_scaling_factor)
+        self.trail_iter = None
+        self._trail_objects = []
         self.static = static  # specifies if the body should not have momentum calculations done on it
         self._id = next(NBody.__id)  # unique identifier
         self.mass: int = mass
@@ -89,6 +91,23 @@ class NBody(BodyNodeMixins):
         else:
             self.__F = np.array([0, 0], dtype='float64')
 
+
+    def show_pathing(self,canvas):
+
+        while True:
+            for j in range(20):
+                for _ in range(200):
+                    yield
+                else:
+                    if len(self._trail_objects) <20:
+                        o = canvas.create_oval(self.x-1, self.y - 1, self.x + 1,
+                                    self.y + 1,
+                                    outline="black", fill="black", width=1)
+                        self._trail_objects.append(o)
+                    else:
+                        canvas.coords(self._trail_objects[j],self.x-1, self.y - 1, self.x + 1,
+                                    self.y + 1,)
+                yield
 
     def get_distance_scalar(self, body):
         """square distance scalar between """
@@ -255,7 +274,7 @@ class BHTree:
                 _, tx, _ = self._body_canvas_objs[body._id]
                 self.canvas.coords(tx, body.x, body.y)
                 self.canvas.itemconfigure(tx, text=f"id : {body._id}")
-
+                next(body.trail_iter)
     def run_nbody(self, parent):
         individual_debug = False  # set manually to debug individual bodies
 
@@ -437,7 +456,7 @@ def generate_bodies(no_bodies: int, proportion: float, mass_range=MASS_RANGE, st
 
     if star:
         # massive as the sun
-        bodies.append(NBody(10 ** 29, 20, 1440 / 2, 1440 / 2, True))
+        bodies.append(NBody(2*10 ** 30, 20, 1440 / 2, 1440 / 2, True))
         bodies[-1].velocity = np.array([0, 0])*NBody._body_scaling_factor
     return bodies
 
@@ -445,8 +464,9 @@ def generate_bodies(no_bodies: int, proportion: float, mass_range=MASS_RANGE, st
 if __name__ == '__main__':
     canvas_w,canvas_h = 1440,1440
     NBody.set_scaling_factor(canvas_w,canvas_h)
-    bodies = generate_bodies(100, 0.5)
+    bodies = generate_bodies(10, 0.5)
     tracked = random.sample(bodies, 10)
+
     tracked = sorted(tracked, key=lambda body: body._id)
     infoboxes = {}
 
@@ -486,6 +506,8 @@ if __name__ == '__main__':
     contframe.grid(row=0, column=1)
     canvas.grid(column=0, row=0, rowspan=2, sticky=N)
 
+    for t in tracked:
+        t.trail_iter = t.show_pathing(canvas)
     main.pack()
 
     mainloop()
