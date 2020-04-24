@@ -11,7 +11,7 @@ import numpy as np
 class LocationNode:
     reverse_directions = {'N':'S','S':'N','E':'W','W':'E'}
 
-    def __init__(self,position : List[int],max_height : int =None,weights=(0.5,0.45,0.05)):
+    def __init__(self,position : List[int],max_height : int =None,weights=(0.5,0.5,0.1)):
         self.weights = weights
         self.max_height = max_height
         self.xcord,self.ycord = position
@@ -58,14 +58,20 @@ class LocationNode:
             wavg,eavg,savg,navg = [],[],[],[]
             directional_averages = [wavg,eavg,savg,navg]
             for rel,node in has_height.items():
+                if len(rel) > 1:
+                    val = node.height/2
+                else:
+                    val = node.height
                 if 'N' in rel:
-                    navg.append(node.height)
+
+
+                    navg.append(val)
                 if 'S' in rel:
-                    savg.append(node.height)
+                    savg.append(val)
                 if 'E' in rel:
-                    eavg.append(node.height)
+                    eavg.append(val)
                 if 'W' in rel:
-                    wavg.append(node.height)
+                    wavg.append(val)
             else:
 
                 directional_averages= {direction:(0 if not avg else mean(avg)) for direction,avg
@@ -81,9 +87,12 @@ class LocationNode:
                             if weighted_average[0]:
                                 # if there is a gradient in one direction this will favor it
                                 weighted_average[0] += abs(directional_averages[cardinal_dir])
-                                weighted_average[0] = weighted_average[0]/4
+                                if len(position) > 1:
+                                    weighted_average[0] /= 2
                             else:
                                 weighted_average[0] += abs(directional_averages[cardinal_dir])
+                                if len(position) > 1:
+                                    weighted_average[0] /= 2
                     # factoring in directional slope, matters in lower areas
                     weighted_average[0] = weighted_average[0]
                     # local average,matters less when the local area varies heavily
@@ -99,7 +108,7 @@ class LocationNode:
                     if node.height > self.max_height: node.height = self.max_height
         else:
             for node,node in self.adj_coords.items():
-                    node.height = randrange(self.height-2,self.max_height)
+                    node.height = randrange(self.height-2,self.max_height)*0.9
 
         return [value for value in self.adj_coords.values()]
 
@@ -184,8 +193,10 @@ class MapContainer:
 
 
 
-        ax.scatter(x,y,z,c=[zzz for zz in z for zzz in zz],cmap='viridis')
-        ax.plot_wireframe(x,y,z,cmap='viridis')
+        #ax.scatter(x,y,z,c=[zzz for zz in z for zzz in zz],cmap='viridis')
+        #ax.plot_wireframe(x,y,z)
+        ax.contour3D(x,y,z,50,cmap='viridis')
+
         plt.show()
 
     def __call__(self, peaks : int = 5,custom_weights : List[float] = None):
@@ -197,8 +208,8 @@ class MapContainer:
         return display
 
 if __name__ == '__main__':
-    test = MapContainer([5,5],5)
-    test(custom_weights=[0.5,0.5,0.2])
+    test = MapContainer([100,100],10)
+    test()
 
 
 
