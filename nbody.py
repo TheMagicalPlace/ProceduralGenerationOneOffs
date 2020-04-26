@@ -7,7 +7,8 @@ import random
 from itertools import chain, product
 from math import sin, cos
 import numpy as np
-
+import multiprocessing
+from multiprocessing import Pipe,Pool,Process
 from math import sqrt
 
 SCALE = 1 / 10  # scaling factor
@@ -16,6 +17,9 @@ SOLAR_SCALING_FACTOR = 9.09e12  # meters, appx. diameter of the solar system (ou
 from math import log
 NBODY_SCALING_FACTOR = None  # set on runtime
 MASS_RANGE = (10e15,10e24)
+
+def multi(obj):
+    pass
 
 class BodyNodeMixins:
 
@@ -140,7 +144,7 @@ class NBody(BodyNodeMixins):
         except Exception as e:
             print(e)
 
-    def calculate_new_motion_properties(self, timestep=3600*24):
+    def calculate_new_motion_properties(self, timestep=3600):
         """Calculates the current acceleration,velocity,and position of the center of mass for the body"""
 
         # static bodies do not have meaningful amounts of force exerted on them, so no calculations are done
@@ -163,7 +167,7 @@ class BHTreeNode(BodyNodeMixins):
         self.dx = x[1] - x[0]
         self.dy = y[1] - y[0]
 
-        self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy])*self._body_scaling_factor
+        self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy])*BHTreeNode._body_scaling_factor
 
         # size of node
         self.s = self.dx
@@ -198,7 +202,7 @@ class BHTreeNode(BodyNodeMixins):
         elif len(self.childs) == 0:
             self.center_of_mass = np.array([self.x0 + self.dx, self.y0 + self.dy],
                                            dtype='float64')
-            self.center_of_mass = self.center_of_mass*self._body_scaling_factor
+            self.center_of_mass = self.center_of_mass*BHTreeNode._body_scaling_factor
 
         # for multiple bodies, calculate the center of mass normally
         else:
@@ -216,8 +220,13 @@ class BHTree:
     tracked_bodies = None
     canvas_width = 1000  # used for scaling distances
     canvas_height = 1000  # used for scaling distances
+    queue = multiprocessing.Queue()
+    @staticmethod
+    def multi(obj,method):
+        BHTree.queue.put(method)
 
 
+        pass
     def __init__(self, canvas, bodies, mass_range=MASS_RANGE):
         self.debug = 1  # enables drawing of tree boxes and centers of mass
         self.mass_range = mass_range  # used for color representation of body mass relative to eachother
@@ -239,7 +248,7 @@ class BHTree:
         self.root = BHTreeNode(cords)
         self.root.bodies = bodies
         self.ratio = 0.1  # min ratio of s/d
-        self.subdivide(self.root, 0)
+        self.subdivide(self.root)
         self.root._find_com()
         if self.debug == 2:
             self._show_debug_info(self.root)
@@ -261,7 +270,12 @@ class BHTree:
                                                           f"Mass : {body.mass:.2e}\n", anchor=CENTER)
 
     def examine_bodies(self):
+        self.root.childs = []
+        self.canvas.delete('line')
+        self.subdivide(self.root)
         for body in self.bodies:
+            if body.x > 3*self.canvas_width or body.y > self.canvas_height:
+                self.bodies.remove(body)
             if body.static: continue  # 'static' bodies are those massive enough by comparison
             # that negligable force is exerted on them by the other bodies
 
@@ -275,6 +289,13 @@ class BHTree:
                 self.canvas.coords(tx, body.x, body.y)
                 self.canvas.itemconfigure(tx, text=f"id : {body._id}")
                 next(body.trail_iter)
+
+    def examine_multi(self):
+        for body in self.bodies:
+            if body.static: continue  # 'static' bodies are those massive enough by comparison
+            # that negligable force is exerted on them by the other bodies
+            body.reset_F()  # need to clear out force from last round
+
     def run_nbody(self, parent):
         individual_debug = False  # set manually to debug individual bodies
 
@@ -366,16 +387,20 @@ class BHTree:
             momentum_arrow = None
         self._body_canvas_objs[body] = (bd, tx, momentum_arrow)
 
-    def _show_debug_info(self, node, show_mass=True):
+
+
+    def _show_debug_info(self, node, show_mass=True,overwrite=True):
+
+
 
         dp = 0
-        a = self.canvas.create_line(node.x0 + node.dx // 2, node.y0, node.x0 + node.dx // 2, node.y, width=1)
-        b = self.canvas.create_line(node.x0, node.y0 + node.dy // 2, node.x, node.y0 + node.dy // 2, width=2)
+        a = self.canvas.create_line(node.x0 + node.dx // 2, node.y0, node.x0 + node.dx // 2, node.y, width=1,tag='line')
+        b = self.canvas.create_line(node.x0, node.y0 + node.dy // 2, node.x, node.y0 + node.dy // 2, width=2,tag='line')
 
         if show_mass:
             if node.mass == 0:
-                self._tree_line_objs += [a, b]
-            else:
+                pass
+            elif False:
                 n = node
                 while n.parent:
                     dp += 1
@@ -388,16 +413,20 @@ class BHTree:
                                             width=1)
                 self._tree_line_objs += [a, b, c]
         else:
-            self._tree_line_objs += [a, b]
+            pass
 
-    def subdivide(self, node, depth):
+    def subdivide(self, node, depth=0):
 
-        if self.debug == 2:
+        if self.debug:
             self._show_debug_info(node)
-            time.sleep(0.05)
 
         midx = node.x0 + node.dx // 2;
         midy = node.y0 + node.dy // 2
+        if node.parent and all([node.x0 == node.parent.x0,
+                            node.parent.y0  == node.y0,
+                            node.parent.x==node.x,
+                            node.parent.y == node.y]):
+            return
         nw = [node.x0, node.y0], [midx, midy]
         ne = [[midx, node.y0], [node.x, midy]]
         sw = [[node.x0, midy], [midx, node.y]]
@@ -411,9 +440,7 @@ class BHTree:
                 node.childs.append(n)
         node._find_com()
 
-        if self.debug == 2:
-            self._show_debug_info(node)
-            time.sleep(0.05)
+
 
 def callback(event):
 
@@ -457,7 +484,7 @@ def generate_bodies(no_bodies: int, proportion: float, mass_range=MASS_RANGE, st
 
     if star:
         # massive as the sun
-        bodies.append(NBody(2*10 ** 30, 20, 1440 / 2, 1440 / 2, True))
+        bodies.append(NBody(2*10 ** 28, 20, 1440 / 2, 1440 / 2, True))
         bodies[-1].velocity = np.array([0, 0])*NBody._body_scaling_factor
     return bodies
 
@@ -492,9 +519,47 @@ def reset(canvas,info):
 
     canvas.bind('<1>', run)
 
+def qsetup(q,obj,method):
+    pass
+class MultiBHTree:
+    def __init__(self,bodies,active_body,ratio, coords):
+        self.bodies = bodies
+        self.active_body = active_body
+        self.ratio=ratio
+        self.root = BHTreeNode(coords)
+
+    def run_nbody(self, parent):
+        s = parent.s
+        d = self.active_body.get_distance_scalar(parent)
+
+        # external node i.e. node only contains one body
+        if len(parent.bodies) == 1:
+            # body does not act on itself
+            if parent.bodies[0] == self.active_body:
+                return
+            else:
+                self.active_body.calculate_force(parent.bodies[0])
+
+        # Empty nodes exert no force
+        elif len(parent.bodies) == 0:
+            return
+        # node is already at center of mass
+        elif d == 0:
+            return
+        # if distance is far enough to approximate treat nodes content bodies as one for force
+        elif s / d < self.ratio:
+            self.active_body.calculate_force(parent)
+
+        # else examine children
+        else:
+            for child in parent.childs:
+                self.run_nbody(child)
+
 if __name__ == '__main__':
+
+
     canvas_w,canvas_h = 1440,1440
-    NBody.set_scaling_factor(canvas_w,canvas_h)
+    BodyNodeMixins.set_scaling_factor(canvas_w,canvas_h)
     bodies = generate_bodies(10, 0.5)
     tracked = random.sample(bodies, 10)
 
